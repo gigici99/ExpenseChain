@@ -62,9 +62,19 @@ func main() {
 	txSvc := service.NewTransactionService(txRepo, policyRepo, employeeRepo, cardRepo, companyRepo, validator, ledger, ledger)
 	authSvc := service.NewAuthService(userRepo, jwtSecret)
 
+	// --- Seed admin ---
+	adminPassword := os.Getenv("ADMIN_PASSWORD")
+	if adminPassword == "" {
+		adminPassword = "admin123" // dev default
+		log.Println("[main] WARNING: ADMIN_PASSWORD not set, seed admin uses default 'admin123'")
+	}
+	if err := authSvc.EnsureAdmin("admin", adminPassword); err != nil {
+		log.Fatalf("[main] seed admin failed: %v", err)
+	}
+
 	// --- Handlers ---
-	companyH := handler.NewCompanyHandler(companySvc)
-	employeeH := handler.NewEmployeeHandler(employeeSvc)
+	companyH := handler.NewCompanyHandler(companySvc, authSvc)
+	employeeH := handler.NewEmployeeHandler(employeeSvc, authSvc)
 	cardH := handler.NewCardHandler(cardSvc)
 	policyH := handler.NewPolicyHandler(policySvc)
 	txH := handler.NewTransactionHandler(txSvc)

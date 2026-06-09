@@ -2,24 +2,31 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
+	"expense-chain/src/model"
 	"expense-chain/src/service"
 )
 
 type CompanyHandler struct {
-	svc *service.CompanyService
+	svc  *service.CompanyService
+	auth *service.AuthService
 }
 
-func NewCompanyHandler(svc *service.CompanyService) *CompanyHandler {
-	return &CompanyHandler{svc: svc}
+func NewCompanyHandler(svc *service.CompanyService, auth *service.AuthService) *CompanyHandler {
+	return &CompanyHandler{svc: svc, auth: auth}
 }
 
+// Create makes a company and, if credentials are supplied, a linked COMPANY login user.
+// Only ADMIN reaches this route (see router).
 func (h *CompanyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name    string `json:"name"`
-		VatID   string `json:"vat_id"`
-		Address string `json:"address"`
+		Name     string `json:"name"`
+		VatID    string `json:"vat_id"`
+		Address  string `json:"address"`
+		Username string `json:"username"` // optional: COMPANY user login
+		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -30,6 +37,16 @@ func (h *CompanyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	// provision the company's login user
+	if body.Username != "" && body.Password != "" {
+		if _, err := h.auth.Register(body.Username, body.Password, model.RoleCompany, company.ID, ""); err != nil {
+			// company is created; surface the user error but don't roll back
+			log.Printf("[CompanyHandler] company %s created but user provisioning failed: %v", company.ID, err)
+			writeError(w, http.StatusBadRequest, "azienda creata, ma utente non creato: "+err.Error())
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, company)

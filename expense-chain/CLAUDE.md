@@ -152,10 +152,37 @@ Secret da env `JWT_SECRET` (fallback dev insicuro se assente).
 2. Richieste protette: header `Authorization: Bearer <access_token>`
 3. Access scaduto → `POST /api/auth/refresh {refresh_token}` → nuova coppia
 
+**Seed admin + provisioning utenti:**
+- All'avvio `authSvc.EnsureAdmin("admin", ADMIN_PASSWORD)` crea utente ADMIN se non esiste (idempotente). Password da env `ADMIN_PASSWORD`, fallback dev `admin123`.
+- `POST /api/auth/register` ora è ADMIN-only (non più pubblico).
+- `POST /api/companies` (ADMIN): se body include `username`+`password`, crea anche utente COMPANY collegato (company_id = nuova azienda). Orchestrazione in `CompanyHandler` (ha sia companySvc che authSvc).
+- `POST /api/employees` (COMPANY): se body include `username`+`password`, crea anche utente EMPLOYEE collegato (company_id + employee_id). Orchestrazione in `EmployeeHandler`.
+- Provisioning utente fallito NON fa rollback dell'entità (azienda/dipendente resta) — ritorna errore con messaggio. Scelta demo, no transazione atomica.
+
+**Catena di onboarding completa:**
+1. login `admin` / `admin123`
+2. admin crea azienda + utente COMPANY (username/password nel form)
+3. login come azienda → crea dipendenti + utenti EMPLOYEE
+4. login come dipendente → inserisce spese
+
 **TODO sicurezza (non fatto, valutare per esame):**
 - Scoping per CompanyID: ora COMPANY può vedere/modificare dati di QUALSIASI company, non solo la propria. Claims hanno CompanyID ma gli handler non lo usano ancora per filtrare.
 - EMPLOYEE può leggere transazioni di altri employee (no ownership check su employee_id).
 - Refresh token non revocabile (no blacklist/rotation) — refresh valido fino a scadenza naturale.
+
+## Frontend — expense-chain-fe
+
+Path: `C:\Users\LuigiCirillo\dev\unisa-sd\sicurezza-dei-dati\pj2\ExpenseChain\expense-chain-fe`
+Stack: Vue 3 (Composition API, `<script setup>`) + Vite 6 + vue-router 4. CSS plain (no Tailwind).
+Run: `npm run dev` (porta 5173, proxy `/api` → localhost:8080). Build: `npm run build`.
+
+- `src/api/client.js` — fetch wrapper: Bearer header, auto-refresh su 401 (1 retry), tutti gli endpoint. Costanti CATEGORIES/CARD_TYPES/ROLES. `decodeToken` per gating UI.
+- `src/store/auth.js` — stato reattivo (composable `useAuth`): login/logout, `can(...roles)` (ADMIN sempre true), claims da JWT.
+- `src/router.js` — guard: redirect a /login se non autenticato. Token in localStorage.
+- `src/App.vue` — shell con sidebar, link filtrati per ruolo via `can()`.
+- Views: `Login`, `Dashboard` (stats + integrità ledger), `Companies`, `Employees`, `Cards`, `Policies`, `Transactions` (manuale + payment simulato + esito validazione), `Ledger` (lista entry + verifica integrità).
+
+Sidebar mostra link in base al ruolo: COMPANY vede aziende/dipendenti/carte/policy/ledger, EMPLOYEE vede solo transazioni. Gating UI = solo UX, sicurezza vera è nel BE.
 
 ## Tech Stack
 

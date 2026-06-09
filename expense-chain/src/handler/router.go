@@ -27,10 +27,10 @@ func NewRouter(
 		emp      = model.RoleEmployee
 	)
 
-	// --- Auth (public) ---
-	mux.HandleFunc("POST /api/auth/register", auth.Register)
-	mux.HandleFunc("POST /api/auth/login", auth.Login)
-	mux.HandleFunc("POST /api/auth/refresh", auth.Refresh)
+	// --- Auth ---
+	mux.HandleFunc("POST /api/auth/login", auth.Login)       // public
+	mux.HandleFunc("POST /api/auth/refresh", auth.Refresh)   // public
+	mux.HandleFunc("POST /api/auth/register", mw.Protect(auth.Register, admin)) // ADMIN only
 
 	// --- Ledger (audit + blockchain) — COMPANY can view, ADMIN auto ---
 	mux.HandleFunc("GET /api/ledger", mw.Protect(ledger.GetAll, comp))
@@ -38,11 +38,11 @@ func NewRouter(
 	mux.HandleFunc("GET /api/ledger/entity/{entity_id}", mw.Protect(ledger.GetByEntityID, comp))
 
 	// --- Company — only ADMIN manages companies ---
-	mux.HandleFunc("POST /api/companies", mw.Protect(company.Create))
+	mux.HandleFunc("POST /api/companies", mw.Protect(company.Create, admin))
 	mux.HandleFunc("GET /api/companies", mw.Protect(company.GetAll, comp))
 	mux.HandleFunc("GET /api/companies/{id}", mw.Protect(company.GetByID, comp))
-	mux.HandleFunc("PUT /api/companies/{id}", mw.Protect(company.Update))
-	mux.HandleFunc("DELETE /api/companies/{id}", mw.Protect(company.Delete))
+	mux.HandleFunc("PUT /api/companies/{id}", mw.Protect(company.Update, admin))
+	mux.HandleFunc("DELETE /api/companies/{id}", mw.Protect(company.Delete, admin))
 
 	// --- Employee — COMPANY manages its workforce ---
 	mux.HandleFunc("POST /api/employees", mw.Protect(employee.Create, comp))

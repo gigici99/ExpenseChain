@@ -2,19 +2,24 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
+	"expense-chain/src/model"
 	"expense-chain/src/service"
 )
 
 type EmployeeHandler struct {
-	svc *service.EmployeeService
+	svc  *service.EmployeeService
+	auth *service.AuthService
 }
 
-func NewEmployeeHandler(svc *service.EmployeeService) *EmployeeHandler {
-	return &EmployeeHandler{svc: svc}
+func NewEmployeeHandler(svc *service.EmployeeService, auth *service.AuthService) *EmployeeHandler {
+	return &EmployeeHandler{svc: svc, auth: auth}
 }
 
+// Create makes an employee and, if credentials are supplied, a linked EMPLOYEE login user.
+// COMPANY (and ADMIN) reach this route.
 func (h *EmployeeHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		CompanyID string `json:"company_id"`
@@ -22,6 +27,8 @@ func (h *EmployeeHandler) Create(w http.ResponseWriter, r *http.Request) {
 		LastName  string `json:"last_name"`
 		Email     string `json:"email"`
 		PolicyID  string `json:"policy_id"`
+		Username  string `json:"username"` // optional: EMPLOYEE user login
+		Password  string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -33,6 +40,16 @@ func (h *EmployeeHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// provision the employee's login user
+	if body.Username != "" && body.Password != "" {
+		if _, err := h.auth.Register(body.Username, body.Password, model.RoleEmployee, employee.CompanyID, employee.ID); err != nil {
+			log.Printf("[EmployeeHandler] employee %s created but user provisioning failed: %v", employee.ID, err)
+			writeError(w, http.StatusBadRequest, "dipendente creato, ma utente non creato: "+err.Error())
+			return
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, employee)
 }
 

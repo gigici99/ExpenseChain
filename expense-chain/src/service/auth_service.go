@@ -78,6 +78,20 @@ func (s *AuthService) Register(username, password string, role model.Role, compa
 	return user, nil
 }
 
+// EnsureAdmin creates a seed ADMIN user at startup if it does not already exist.
+// Idempotent: safe to call on every boot.
+func (s *AuthService) EnsureAdmin(username, password string) error {
+	if _, err := s.repo.FindByUsername(username); err == nil {
+		log.Printf("[Auth] seed admin '%s' already exists", username)
+		return nil
+	}
+	if _, err := s.Register(username, password, model.RoleAdmin, "", ""); err != nil {
+		return fmt.Errorf("AuthService.EnsureAdmin: %w", err)
+	}
+	log.Printf("[Auth] seed admin '%s' created", username)
+	return nil
+}
+
 // Login verifies credentials and issues an access+refresh token pair.
 func (s *AuthService) Login(username, password string) (*TokenPair, error) {
 	user, err := s.repo.FindByUsername(username)
