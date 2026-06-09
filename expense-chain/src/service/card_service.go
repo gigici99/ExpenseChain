@@ -14,10 +14,11 @@ import (
 type CardService struct {
 	repo         *repository.CardRepository
 	employeeRepo *repository.EmployeeRepository
+	audit        AuditLogger
 }
 
-func NewCardService(repo *repository.CardRepository, employeeRepo *repository.EmployeeRepository) *CardService {
-	return &CardService{repo: repo, employeeRepo: employeeRepo}
+func NewCardService(repo *repository.CardRepository, employeeRepo *repository.EmployeeRepository, audit AuditLogger) *CardService {
+	return &CardService{repo: repo, employeeRepo: employeeRepo, audit: audit}
 }
 
 func (s *CardService) Create(employeeID string, cardType model.CardType, last4, holder, provider string, expiresAt time.Time) (*model.Card, error) {
@@ -54,6 +55,10 @@ func (s *CardService) Create(employeeID string, cardType model.CardType, last4, 
 		return nil, fmt.Errorf("CardService.Create: %w", err)
 	}
 
+	if err := s.audit.Append("CARD", card.ID, model.ActionCreate, card); err != nil {
+		log.Printf("[CardService] WARNING: audit append failed: %v", err)
+	}
+
 	log.Printf("[CardService] created card id=%s employee_id=%s type=%s last4=%s", card.ID, card.EmployeeID, card.Type, card.Last4)
 	return card, nil
 }
@@ -87,6 +92,10 @@ func (s *CardService) Delete(id string) error {
 	if err := s.repo.Delete(id); err != nil {
 		return fmt.Errorf("CardService.Delete: %w", err)
 	}
+	if err := s.audit.Append("CARD", id, model.ActionDelete, map[string]string{"id": id}); err != nil {
+		log.Printf("[CardService] WARNING: audit append failed: %v", err)
+	}
+
 	log.Printf("[CardService] deleted card id=%s", id)
 	return nil
 }

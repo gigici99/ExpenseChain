@@ -14,10 +14,11 @@ import (
 type PolicyService struct {
 	repo        *repository.PolicyRepository
 	companyRepo *repository.CompanyRepository
+	audit       AuditLogger
 }
 
-func NewPolicyService(repo *repository.PolicyRepository, companyRepo *repository.CompanyRepository) *PolicyService {
-	return &PolicyService{repo: repo, companyRepo: companyRepo}
+func NewPolicyService(repo *repository.PolicyRepository, companyRepo *repository.CompanyRepository, audit AuditLogger) *PolicyService {
+	return &PolicyService{repo: repo, companyRepo: companyRepo, audit: audit}
 }
 
 func (s *PolicyService) Create(
@@ -58,6 +59,10 @@ func (s *PolicyService) Create(
 
 	if err := s.repo.Create(policy); err != nil {
 		return nil, fmt.Errorf("PolicyService.Create: %w", err)
+	}
+
+	if err := s.audit.Append("POLICY", policy.ID, model.ActionCreate, policy); err != nil {
+		log.Printf("[PolicyService] WARNING: audit append failed: %v", err)
 	}
 
 	log.Printf("[PolicyService] created policy id=%s company_id=%s name=%s", policy.ID, policy.CompanyID, policy.Name)
@@ -131,6 +136,10 @@ func (s *PolicyService) Update(
 		return nil, fmt.Errorf("PolicyService.Update: %w", err)
 	}
 
+	if err := s.audit.Append("POLICY", policy.ID, model.ActionUpdate, policy); err != nil {
+		log.Printf("[PolicyService] WARNING: audit append failed: %v", err)
+	}
+
 	log.Printf("[PolicyService] updated policy id=%s", policy.ID)
 	return policy, nil
 }
@@ -142,6 +151,10 @@ func (s *PolicyService) Delete(id string) error {
 	if err := s.repo.Delete(id); err != nil {
 		return fmt.Errorf("PolicyService.Delete: %w", err)
 	}
+	if err := s.audit.Append("POLICY", id, model.ActionDelete, map[string]string{"id": id}); err != nil {
+		log.Printf("[PolicyService] WARNING: audit append failed: %v", err)
+	}
+
 	log.Printf("[PolicyService] deleted policy id=%s", id)
 	return nil
 }

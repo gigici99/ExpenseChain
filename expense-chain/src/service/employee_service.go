@@ -14,10 +14,11 @@ import (
 type EmployeeService struct {
 	repo        *repository.EmployeeRepository
 	companyRepo *repository.CompanyRepository
+	audit       AuditLogger
 }
 
-func NewEmployeeService(repo *repository.EmployeeRepository, companyRepo *repository.CompanyRepository) *EmployeeService {
-	return &EmployeeService{repo: repo, companyRepo: companyRepo}
+func NewEmployeeService(repo *repository.EmployeeRepository, companyRepo *repository.CompanyRepository, audit AuditLogger) *EmployeeService {
+	return &EmployeeService{repo: repo, companyRepo: companyRepo, audit: audit}
 }
 
 func (s *EmployeeService) Create(companyID, firstName, lastName, email, policyID string) (*model.Employee, error) {
@@ -48,6 +49,10 @@ func (s *EmployeeService) Create(companyID, firstName, lastName, email, policyID
 
 	if err := s.repo.Create(employee); err != nil {
 		return nil, fmt.Errorf("EmployeeService.Create: %w", err)
+	}
+
+	if err := s.audit.Append("EMPLOYEE", employee.ID, model.ActionCreate, employee); err != nil {
+		log.Printf("[EmployeeService] WARNING: audit append failed: %v", err)
 	}
 
 	log.Printf("[EmployeeService] created employee id=%s email=%s company_id=%s", employee.ID, employee.Email, employee.CompanyID)
@@ -107,6 +112,10 @@ func (s *EmployeeService) Update(id, firstName, lastName, email, policyID string
 		return nil, fmt.Errorf("EmployeeService.Update: %w", err)
 	}
 
+	if err := s.audit.Append("EMPLOYEE", employee.ID, model.ActionUpdate, employee); err != nil {
+		log.Printf("[EmployeeService] WARNING: audit append failed: %v", err)
+	}
+
 	log.Printf("[EmployeeService] updated employee id=%s", employee.ID)
 	return employee, nil
 }
@@ -118,6 +127,10 @@ func (s *EmployeeService) Delete(id string) error {
 	if err := s.repo.Delete(id); err != nil {
 		return fmt.Errorf("EmployeeService.Delete: %w", err)
 	}
+	if err := s.audit.Append("EMPLOYEE", id, model.ActionDelete, map[string]string{"id": id}); err != nil {
+		log.Printf("[EmployeeService] WARNING: audit append failed: %v", err)
+	}
+
 	log.Printf("[EmployeeService] deleted employee id=%s", id)
 	return nil
 }

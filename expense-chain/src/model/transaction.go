@@ -13,8 +13,10 @@ const (
 
 type Transaction struct {
 	ID          string              `json:"id"`
-	Company     Company             `json:"company" gorm:"serializer:json"`
-	Employee    Employee            `json:"employee" gorm:"serializer:json"`
+	EmployeeID  string              `json:"employee_id" gorm:"index"` // flat key for queries (sums, filters)
+	CompanyID   string              `json:"company_id" gorm:"index"`  // flat key for queries
+	Company     Company             `json:"company" gorm:"serializer:json"`  // immutable snapshot
+	Employee    Employee            `json:"employee" gorm:"serializer:json"` // immutable snapshot
 	Card        Card                `json:"card" gorm:"serializer:json"`
 	Policy      Policy              `json:"policy" gorm:"serializer:json"`
 	Amount      float64             `json:"amount"`

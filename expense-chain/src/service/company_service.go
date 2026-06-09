@@ -12,11 +12,12 @@ import (
 )
 
 type CompanyService struct {
-	repo *repository.CompanyRepository
+	repo  *repository.CompanyRepository
+	audit AuditLogger
 }
 
-func NewCompanyService(repo *repository.CompanyRepository) *CompanyService {
-	return &CompanyService{repo: repo}
+func NewCompanyService(repo *repository.CompanyRepository, audit AuditLogger) *CompanyService {
+	return &CompanyService{repo: repo, audit: audit}
 }
 
 func (s *CompanyService) Create(name, vatID, address string) (*model.Company, error) {
@@ -37,6 +38,10 @@ func (s *CompanyService) Create(name, vatID, address string) (*model.Company, er
 
 	if err := s.repo.Create(company); err != nil {
 		return nil, fmt.Errorf("CompanyService.Create: %w", err)
+	}
+
+	if err := s.audit.Append("COMPANY", company.ID, model.ActionCreate, company); err != nil {
+		log.Printf("[CompanyService] WARNING: audit append failed: %v", err)
 	}
 
 	log.Printf("[CompanyService] created company id=%s name=%s", company.ID, company.Name)
@@ -82,6 +87,10 @@ func (s *CompanyService) Update(id, name, vatID, address string) (*model.Company
 		return nil, fmt.Errorf("CompanyService.Update: %w", err)
 	}
 
+	if err := s.audit.Append("COMPANY", company.ID, model.ActionUpdate, company); err != nil {
+		log.Printf("[CompanyService] WARNING: audit append failed: %v", err)
+	}
+
 	log.Printf("[CompanyService] updated company id=%s", company.ID)
 	return company, nil
 }
@@ -93,6 +102,10 @@ func (s *CompanyService) Delete(id string) error {
 	if err := s.repo.Delete(id); err != nil {
 		return fmt.Errorf("CompanyService.Delete: %w", err)
 	}
+	if err := s.audit.Append("COMPANY", id, model.ActionDelete, map[string]string{"id": id}); err != nil {
+		log.Printf("[CompanyService] WARNING: audit append failed: %v", err)
+	}
+
 	log.Printf("[CompanyService] deleted company id=%s", id)
 	return nil
 }

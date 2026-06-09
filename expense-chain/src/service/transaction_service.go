@@ -19,8 +19,10 @@ type ValidationResult struct {
 }
 
 // Validator is the smart contract interface — contract package implements this.
+// It is a pure function: receives all data it needs (including pre-computed spending
+// totals) and returns a decision. No DB access, no side effects.
 type Validator interface {
-	Validate(tx *model.Transaction, policy *model.Policy) ValidationResult
+	Validate(tx *model.Transaction, policy *model.Policy, spentToday, spentMonth float64) ValidationResult
 }
 
 // BlockchainWriter is the blockchain interface — blockchain package implements this.
@@ -36,6 +38,7 @@ type TransactionService struct {
 	companyRepo *repository.CompanyRepository
 	validator   Validator
 	blockchain  BlockchainWriter
+	audit       AuditLogger
 }
 
 func NewTransactionService(
@@ -46,6 +49,7 @@ func NewTransactionService(
 	companyRepo *repository.CompanyRepository,
 	validator Validator,
 	blockchain BlockchainWriter,
+	audit AuditLogger,
 ) *TransactionService {
 	return &TransactionService{
 		txRepo:       txRepo,
@@ -55,6 +59,7 @@ func NewTransactionService(
 		companyRepo:  companyRepo,
 		validator:    validator,
 		blockchain:   blockchain,
+		audit:        audit,
 	}
 }
 
@@ -104,6 +109,8 @@ func (s *TransactionService) Submit(
 	now := time.Now()
 	tx := &model.Transaction{
 		ID:          uuid.NewString(),
+		EmployeeID:  employee.ID,
+		CompanyID:   company.ID,
 		Company:     *company,
 		Employee:    *employee,
 		Card:        *card,
@@ -116,8 +123,21 @@ func (s *TransactionService) Submit(
 		CreatedAt:   now,
 	}
 
-	// smart contract validation
-	result := s.validator.Validate(tx, policy)
+	// pre-compute spending totals for daily/monthly caps (contract stays pure)
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+
+	spentToday, err := s.txRepo.SumApprovedBetween(employee.ID, startOfDay, now)
+	if err != nil {
+		return nil, fmt.Errorf("TransactionService.Submit: sum today failed: %w", err)
+	}
+	spentMonth, err := s.txRepo.SumApprovedBetween(employee.ID, startOfMonth, now)
+	if err != nil {
+		return nil, fmt.Errorf("TransactionService.Submit: sum month failed: %w", err)
+	}
+
+	// smart contract validation — pure function, all inputs provided
+	result := s.validator.Validate(tx, policy, spentToday, spentMonth)
 	tx.Status = result.Status
 	tx.RejectReason = result.RejectReason
 	validatedAt := time.Now()
@@ -137,6 +157,10 @@ func (s *TransactionService) Submit(
 			log.Printf("[TransactionService] WARNING: blockchain write failed id=%s err=%v", tx.ID, err)
 		}
 	} else {
+		// rejected transactions also enter the ledger — full audit trail
+		if err := s.audit.Append("TRANSACTION", tx.ID, model.ActionRejected, tx); err != nil {
+			log.Printf("[TransactionService] WARNING: audit append failed: %v", err)
+		}
 		log.Printf("[TransactionService] rejected id=%s reason=%s", tx.ID, tx.RejectReason)
 	}
 
