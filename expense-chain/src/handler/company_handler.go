@@ -18,14 +18,12 @@ func NewCompanyHandler(svc *service.CompanyService, auth *service.AuthService) *
 	return &CompanyHandler{svc: svc, auth: auth}
 }
 
-// Create makes a company and, if credentials are supplied, a linked COMPANY login user.
-// Only ADMIN reaches this route (see router).
 func (h *CompanyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name     string `json:"name"`
 		VatID    string `json:"vat_id"`
 		Address  string `json:"address"`
-		Username string `json:"username"` // optional: COMPANY user login
+		Username string `json:"username"`
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -39,10 +37,8 @@ func (h *CompanyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// provision the company's login user
 	if body.Username != "" && body.Password != "" {
 		if _, err := h.auth.Register(body.Username, body.Password, model.RoleCompany, company.ID, ""); err != nil {
-			// company is created; surface the user error but don't roll back
 			log.Printf("[CompanyHandler] company %s created but user provisioning failed: %v", company.ID, err)
 			writeError(w, http.StatusBadRequest, "azienda creata, ma utente non creato: "+err.Error())
 			return
@@ -53,6 +49,24 @@ func (h *CompanyHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CompanyHandler) GetAll(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFrom(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing claims")
+		return
+	}
+
+	// COMPANY user sees only own company
+	if claims.Role == model.RoleCompany {
+		company, err := h.svc.GetByID(claims.CompanyID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, []model.Company{*company})
+		return
+	}
+
+	// ADMIN sees all
 	companies, err := h.svc.GetAll()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -62,7 +76,19 @@ func (h *CompanyHandler) GetAll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CompanyHandler) GetByID(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFrom(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing claims")
+		return
+	}
+
 	id := r.PathValue("id")
+
+	if claims.Role == model.RoleCompany && id != claims.CompanyID {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+
 	company, err := h.svc.GetByID(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())

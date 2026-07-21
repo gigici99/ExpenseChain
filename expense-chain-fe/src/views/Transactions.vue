@@ -1,27 +1,34 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { api, CATEGORIES } from '../api/client.js'
 import { useAuth } from '../store/auth.js'
 
-const { can } = useAuth()
+const { can, role, state } = useAuth()
+
+const isEmployee = computed(() => role.value === 'EMPLOYEE')
+const employeeId = computed(() => state.claims?.employee_id || '')
 
 const transactions = ref([])
 const employees = ref([])
 const cards = ref([])
 const form = ref({ employee_id: '', card_id: '', amount: 0, currency: 'EUR', category: 'FOOD', description: '' })
-const mode = ref('manual') // 'manual' = POST /transactions, 'payment' = POST /payments/incoming
+const mode = ref('manual')
 const error = ref('')
 const result = ref(null)
 
 async function loadEmployees() {
-  try { employees.value = await api.listEmployees() } catch { /* employee role may not list */ }
+  if (isEmployee.value) return
+  try { employees.value = await api.listEmployees() } catch { /* ignore */ }
 }
 
 async function loadTransactions() {
-  try { transactions.value = await api.listTransactions() } catch (e) { /* employee role: no global list */ }
+  try { transactions.value = await api.listTransactions() } catch { /* ignore */ }
 }
 
-watch(() => form.value.employee_id, async (empId) => {
+// When employee_id changes, load cards for that employee
+const activeEmployeeId = computed(() => isEmployee.value ? employeeId.value : form.value.employee_id)
+
+watch(activeEmployeeId, async (empId) => {
   cards.value = []
   form.value.card_id = ''
   if (empId) {
@@ -32,7 +39,11 @@ watch(() => form.value.employee_id, async (empId) => {
 async function submit() {
   error.value = ''; result.value = null
   try {
-    const payload = { ...form.value, amount: Number(form.value.amount) }
+    const payload = {
+      ...form.value,
+      amount: Number(form.value.amount),
+      employee_id: isEmployee.value ? employeeId.value : form.value.employee_id,
+    }
     const fn = mode.value === 'payment' ? api.incomingPayment : api.submitTransaction
     result.value = await fn(payload)
     await loadTransactions()
@@ -43,7 +54,11 @@ async function submit() {
 
 onMounted(async () => {
   await loadEmployees()
-  if (can('COMPANY')) await loadTransactions()
+  // Employee: auto-load own cards
+  if (isEmployee.value && employeeId.value) {
+    try { cards.value = await api.getCardsByEmployee(employeeId.value) } catch { /* ignore */ }
+  }
+  await loadTransactions()
 })
 </script>
 
@@ -64,7 +79,8 @@ onMounted(async () => {
             <option value="payment">Pagamento carta simulato</option>
           </select>
         </div>
-        <div>
+        <!-- COMPANY/ADMIN: choose employee. EMPLOYEE: auto-set -->
+        <div v-if="!isEmployee">
           <label>Dipendente</label>
           <select v-model="form.employee_id">
             <option value="">— seleziona —</option>
@@ -99,8 +115,8 @@ onMounted(async () => {
       </p>
     </div>
 
-    <div v-if="can('COMPANY')" class="card">
-      <h3>Storico transazioni ({{ transactions.length }})</h3>
+    <div class="card">
+      <h3>{{ isEmployee ? 'Le mie transazioni' : 'Storico transazioni' }} ({{ transactions.length }})</h3>
       <table>
         <thead><tr><th>ID</th><th>Importo</th><th>Categoria</th><th>Stato</th><th>Motivo</th></tr></thead>
         <tbody>

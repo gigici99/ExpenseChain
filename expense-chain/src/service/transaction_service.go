@@ -189,6 +189,17 @@ func (s *TransactionService) GetByEmployeeID(employeeID string) ([]model.Transac
 	return txs, nil
 }
 
+func (s *TransactionService) GetByCompanyID(companyID string) ([]model.Transaction, error) {
+	if companyID == "" {
+		return nil, fmt.Errorf("TransactionService.GetByCompanyID: company_id is required")
+	}
+	txs, err := s.txRepo.FindByCompanyID(companyID)
+	if err != nil {
+		return nil, fmt.Errorf("TransactionService.GetByCompanyID: %w", err)
+	}
+	return txs, nil
+}
+
 func (s *TransactionService) GetByStatus(status model.TransactionStatus) ([]model.Transaction, error) {
 	txs, err := s.txRepo.FindByStatus(status)
 	if err != nil {

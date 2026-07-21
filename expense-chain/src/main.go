@@ -75,7 +75,7 @@ func main() {
 	// --- Handlers ---
 	companyH := handler.NewCompanyHandler(companySvc, authSvc)
 	employeeH := handler.NewEmployeeHandler(employeeSvc, authSvc)
-	cardH := handler.NewCardHandler(cardSvc)
+	cardH := handler.NewCardHandler(cardSvc, employeeSvc)
 	policyH := handler.NewPolicyHandler(policySvc)
 	txH := handler.NewTransactionHandler(txSvc)
 	ledgerH := handler.NewLedgerHandler(ledger)

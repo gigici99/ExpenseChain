@@ -23,7 +23,7 @@ function doLogout() {
         <router-link to="/dashboard">Dashboard</router-link>
         <router-link v-if="can('COMPANY')" to="/companies">Aziende</router-link>
         <router-link v-if="can('COMPANY')" to="/employees">Dipendenti</router-link>
-        <router-link v-if="can('COMPANY')" to="/cards">Carte</router-link>
+        <router-link v-if="can('COMPANY', 'EMPLOYEE')" to="/cards">Carte</router-link>
         <router-link v-if="can('COMPANY')" to="/policies">Policy</router-link>
         <router-link v-if="can('COMPANY', 'EMPLOYEE')" to="/transactions">Transazioni</router-link>
         <router-link v-if="can('COMPANY')" to="/ledger">Ledger</router-link>

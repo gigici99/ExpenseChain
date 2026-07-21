@@ -6,9 +6,6 @@ import (
 	"expense-chain/src/model"
 )
 
-// NewRouter wires all handlers to routes using Go 1.22+ ServeMux with method+path patterns.
-// Protected routes are wrapped by the auth middleware with a role allow-list.
-// ADMIN always passes (see roleAllowed); listed roles below are the *additional* roles permitted.
 func NewRouter(
 	auth *AuthHandler,
 	mw *AuthMiddleware,
@@ -22,43 +19,43 @@ func NewRouter(
 	mux := http.NewServeMux()
 
 	const (
-		admin    = model.RoleAdmin
-		comp     = model.RoleCompany
-		emp      = model.RoleEmployee
+		admin = model.RoleAdmin
+		comp  = model.RoleCompany
+		emp   = model.RoleEmployee
 	)
 
 	// --- Auth ---
-	mux.HandleFunc("POST /api/auth/login", auth.Login)       // public
-	mux.HandleFunc("POST /api/auth/refresh", auth.Refresh)   // public
-	mux.HandleFunc("POST /api/auth/register", mw.Protect(auth.Register, admin)) // ADMIN only
+	mux.HandleFunc("POST /api/auth/login", auth.Login)
+	mux.HandleFunc("POST /api/auth/refresh", auth.Refresh)
+	mux.HandleFunc("POST /api/auth/register", mw.Protect(auth.Register, admin))
 
-	// --- Ledger (audit + blockchain) — COMPANY can view, ADMIN auto ---
+	// --- Ledger (audit + blockchain) ---
 	mux.HandleFunc("GET /api/ledger", mw.Protect(ledger.GetAll, comp))
 	mux.HandleFunc("GET /api/ledger/verify", mw.Protect(ledger.Verify, comp))
 	mux.HandleFunc("GET /api/ledger/entity/{entity_id}", mw.Protect(ledger.GetByEntityID, comp))
 
-	// --- Company — only ADMIN manages companies ---
+	// --- Company ---
 	mux.HandleFunc("POST /api/companies", mw.Protect(company.Create, admin))
 	mux.HandleFunc("GET /api/companies", mw.Protect(company.GetAll, comp))
 	mux.HandleFunc("GET /api/companies/{id}", mw.Protect(company.GetByID, comp))
 	mux.HandleFunc("PUT /api/companies/{id}", mw.Protect(company.Update, admin))
 	mux.HandleFunc("DELETE /api/companies/{id}", mw.Protect(company.Delete, admin))
 
-	// --- Employee — COMPANY manages its workforce ---
+	// --- Employee ---
 	mux.HandleFunc("POST /api/employees", mw.Protect(employee.Create, comp))
 	mux.HandleFunc("GET /api/employees", mw.Protect(employee.GetAll, comp))
-	mux.HandleFunc("GET /api/employees/{id}", mw.Protect(employee.GetByID, comp))
+	mux.HandleFunc("GET /api/employees/{id}", mw.Protect(employee.GetByID, comp, emp))
 	mux.HandleFunc("PUT /api/employees/{id}", mw.Protect(employee.Update, comp))
 	mux.HandleFunc("DELETE /api/employees/{id}", mw.Protect(employee.Delete, comp))
 	mux.HandleFunc("GET /api/employees/company/{company_id}", mw.Protect(employee.GetByCompanyID, comp))
 
-	// --- Card — COMPANY manages cards ---
+	// --- Card ---
 	mux.HandleFunc("POST /api/cards", mw.Protect(card.Create, comp))
 	mux.HandleFunc("GET /api/cards/{id}", mw.Protect(card.GetByID, comp, emp))
 	mux.HandleFunc("DELETE /api/cards/{id}", mw.Protect(card.Delete, comp))
 	mux.HandleFunc("GET /api/cards/employee/{employee_id}", mw.Protect(card.GetByEmployeeID, comp, emp))
 
-	// --- Policy — COMPANY creates and manages policies ---
+	// --- Policy ---
 	mux.HandleFunc("POST /api/policies", mw.Protect(policy.Create, comp))
 	mux.HandleFunc("GET /api/policies", mw.Protect(policy.GetAll, comp))
 	mux.HandleFunc("GET /api/policies/{id}", mw.Protect(policy.GetByID, comp))
@@ -66,13 +63,13 @@ func NewRouter(
 	mux.HandleFunc("DELETE /api/policies/{id}", mw.Protect(policy.Delete, comp))
 	mux.HandleFunc("GET /api/policies/company/{company_id}", mw.Protect(policy.GetByCompanyID, comp))
 
-	// --- Transaction — flusso 1: EMPLOYEE submits expenses ---
+	// --- Transaction ---
 	mux.HandleFunc("POST /api/transactions", mw.Protect(transaction.Submit, emp))
-	mux.HandleFunc("GET /api/transactions", mw.Protect(transaction.GetAll, comp))
+	mux.HandleFunc("GET /api/transactions", mw.Protect(transaction.GetAll, comp, emp))
 	mux.HandleFunc("GET /api/transactions/{id}", mw.Protect(transaction.GetByID, comp, emp))
 	mux.HandleFunc("GET /api/transactions/employee/{employee_id}", mw.Protect(transaction.GetByEmployeeID, comp, emp))
 
-	// --- Transaction — flusso 2: simulated card payment event (EMPLOYEE) ---
+	// --- Payments ---
 	mux.HandleFunc("POST /api/payments/incoming", mw.Protect(transaction.IncomingPayment, emp))
 
 	return mux

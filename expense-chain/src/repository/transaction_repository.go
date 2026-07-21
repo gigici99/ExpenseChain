@@ -64,6 +64,15 @@ func (r *TransactionRepository) SumApprovedBetween(employeeID string, from, to t
 	return total, nil
 }
 
+func (r *TransactionRepository) FindByCompanyID(companyID string) ([]model.Transaction, error) {
+	var txs []model.Transaction
+	if err := r.db.Where("company_id = ?", companyID).Find(&txs).Error; err != nil {
+		return nil, fmt.Errorf("TransactionRepository.FindByCompanyID: %w", err)
+	}
+	log.Printf("[Transaction] found %d records for company_id=%s", len(txs), companyID)
+	return txs, nil
+}
+
 func (r *TransactionRepository) FindByStatus(status model.TransactionStatus) ([]model.Transaction, error) {
 	var txs []model.Transaction
 	if err := r.db.Where("status = ?", status).Find(&txs).Error; err != nil {
