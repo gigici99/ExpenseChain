@@ -6,6 +6,244 @@
 
 **ExpenseChain** is a university project that demonstrates a blockchain‑backed audit trail for expense‑management operations. It includes a Go backend and a Vue 3 front‑end.
 
+---
+
+## Architecture
+
+```
+┌──────────────┐     REST/JSON      ┌──────────────────────────────────────┐
+│   Frontend   │ ◄────────────────► │           Go Backend (:8080)         │
+│  Vue 3 SPA   │                    │                                      │
+│  Vite :5173  │                    │  ┌─────────┐  ┌──────────────────┐  │
+└──────────────┘                    │  │ Handler  │→ │     Service      │  │
+                                     │  │ (REST)   │  │  (business logic)│  │
+                                     │  └─────────┘  └────────┬─────────┘  │
+                                     │                        │             │
+                                     │              ┌─────────▼──────────┐  │
+                                     │              │    Repository      │  │
+                                     │              │  (GORM → SQLite)   │  │
+                                     │              └────────────────────┘  │
+                                     │                                      │
+                                     │  ┌─────────────────┐ ┌───────────┐  │
+                                     │  │  Smart Contract  │ │ Blockchain│  │
+                                     │  │  (Validator)     │ │ (Ledger)  │  │
+                                     │  └─────────────────┘ └───────────┘  │
+                                     └──────────────────────────────────────┘
+```
+
+## Technology Stack
+
+| Component | Technology |
+|-----------|------------|
+| Backend   | Go 1.26, net/http (ServeMux) |
+| Database  | SQLite via GORM |
+| Authentication | JWT (access 15 min + refresh 7 d), bcrypt |
+| Frontend  | Vue 3 (Composition API), Vite |
+| Blockchain | SHA‑256 hash‑chain, append‑only ledger |
+| Smart Contract | Pure deterministic validator (5 rules) |
+
+## Key Concepts
+
+### Simulated Blockchain
+Instead of a full Hyperledger Fabric deployment, the system implements a **hash‑chain append‑only ledger** that provides the same integrity guarantees:
+- Every event (CRUD on entities + transaction validation) creates a `LedgerEntry`.
+- Each entry stores `prev_hash` (hash of the previous entry) and `hash` (SHA‑256 over all fields + `prev_hash`).
+- The first entry uses `"GENESIS"` as `prev_hash`.
+- The endpoint `GET /api/ledger/verify` recomputes every hash and validates the chain – any tampering is detected.
+
+**Properties guaranteed:**
+- **Immutability**: altering an entry invalidates all subsequent hashes.
+- **Append‑only**: no UPDATE/DELETE on the ledger table.
+- **Full audit**: every operation is captured with a JSON snapshot of the entity.
+
+### Smart Contract
+`Validator` (`contract/validator.go`) is a **pure function** – it receives all inputs and deterministically returns `APPROVED` or `REJECTED`. No database access, no side effects.
+
+**5 enforced rules:**
+1. Transaction amount must not exceed `MaxAmountPerTx` (if the limit is non‑zero).
+2. Transaction category must not belong to `BlockedCategories`.
+3. Card type must be in `AllowedCardTypes` (if defined).
+4. Daily spending (`spentToday + amount`) must stay under `MaxAmountPerDay`.
+5. Monthly spending (`spentMonth + amount`) must stay under `MaxAmountPerMonth`.
+
+Limits set to `0` are disabled.
+
+### Data Isolation (RBAC)
+Three roles with strict data isolation:
+| Role | Visibility |
+|------|------------|
+| **ADMIN** | Full system – can manage companies and users |
+| **COMPANY** | Only its own company – employees, cards, policies, transactions |
+| **EMPLOYEE** | Only personal data – own cards and transactions |
+
+Isolation is enforced **server‑side** in handlers: each request extracts JWT claims and filters results by `company_id` or `employee_id`. A COMPANY user can never see data belonging to another company.
+
+## Data Model
+
+```
+Company 1──N Employee 1──N Card
+    │              │
+    │              └──── PolicyID → Policy
+    │
+    └── 1──N Policy
+
+Employee ──submit──► Transaction ──validate──► Smart Contract
+                           │                        │
+                           │                   APPROVED/REJECTED
+                           ▼
+                     LedgerEntry (hash‑chained)
+```
+
+**Transaction** stores immutable snapshots of Company, Employee, Card and Policy at the moment of creation – guaranteeing that audit data never changes retroactively.
+
+## Setup & Run
+
+### Prerequisites
+- Go 1.22+ installed
+- Node 18+ installed
+
+### Backend
+```bash
+cd expense-chain
+go run ./src/
+```
+The server starts on `http://localhost:8080`. On first launch it:
+- Creates the SQLite database `expense.db`
+- Auto‑migrates tables via GORM
+- Seeds an admin user (`admin` / `admin123`)
+
+**Optional environment variables:**
+- `JWT_SECRET` – secret for signing JWTs (default: insecure dev fallback)
+- `ADMIN_PASSWORD` – admin seed password (default: `admin123`)
+
+### Frontend
+```bash
+cd expense-chain-fe
+npm install   # or npm ci
+npm run dev   # dev server at http://localhost:5173 (proxy to backend)
+```
+The Vite dev server proxies `/api` calls to the backend automatically.
+
+### Manual Test Flow
+1. Log in as `admin` / `admin123`.
+2. Create a company (which also creates a COMPANY user).
+3. Log in as the COMPANY user → create a spending policy.
+4. Create an employee (which also creates an EMPLOYEE user).
+5. Create a card for the employee.
+6. Log in as the EMPLOYEE → submit an expense.
+7. The smart contract validates the expense → transaction is `APPROVED` or `REJECTED`.
+8. Verify the ledger via the Dashboard or the Ledger page.
+
+## API Endpoints
+
+### Authentication
+| Method | Path | Roles | Description |
+|--------|------|-------|-------------|
+| POST   | `/api/auth/login`    | Public | Returns access + refresh JWT |
+| POST   | `/api/auth/refresh`  | Public | Refreshes access token |
+| POST   | `/api/auth/register` | ADMIN  | Create a new user |
+
+### Companies
+| Method | Path | Roles | Description |
+|--------|------|-------|-------------|
+| POST   | `/api/companies` | ADMIN | Create a company (+ optional COMPANY user) |
+| GET    | `/api/companies` | ADMIN, COMPANY | List (COMPANY sees only its own) |
+| GET    | `/api/companies/{id}` | ADMIN, COMPANY | Detail (COMPANY only its own) |
+| PUT    | `/api/companies/{id}` | ADMIN | Update |
+| DELETE | `/api/companies/{id}` | ADMIN | Delete |
+
+### Employees
+| Method | Path | Roles | Description |
+|--------|------|-------|-------------|
+| POST   | `/api/employees` | COMPANY | Create (+ optional EMPLOYEE user) |
+| GET    | `/api/employees` | COMPANY | List (filtered by company_id) |
+| GET    | `/api/employees/{id}` | COMPANY, EMPLOYEE | Detail (ownership check) |
+| PUT    | `/api/employees/{id}` | COMPANY | Update (ownership check) |
+| DELETE | `/api/employees/{id}` | COMPANY | Delete (ownership check) |
+
+### Cards
+| Method | Path | Roles | Description |
+|--------|------|-------|-------------|
+| POST   | `/api/cards` | COMPANY | Create card for employee |
+| GET    | `/api/cards/{id}` | COMPANY, EMPLOYEE | Detail (ownership check) |
+| GET    | `/api/cards/employee/{employee_id}` | COMPANY, EMPLOYEE | Cards of an employee |
+| DELETE | `/api/cards/{id}` | COMPANY | Delete (ownership check) |
+
+### Policies
+| Method | Path | Roles | Description |
+|--------|------|-------|-------------|
+| POST   | `/api/policies` | COMPANY | Create policy (restricted to own company) |
+| GET    | `/api/policies` | COMPANY | List (filtered by company_id) |
+| GET    | `/api/policies/{id}` | COMPANY | Detail (ownership check) |
+| PUT    | `/api/policies/{id}` | COMPANY | Update (ownership check) |
+| DELETE | `/api/policies/{id}` | COMPANY | Delete (ownership check) |
+
+### Transactions
+| Method | Path | Roles | Description |
+|--------|------|-------|-------------|
+| POST   | `/api/transactions` | EMPLOYEE | Submit expense (employee_id taken from JWT) |
+| GET    | `/api/transactions` | ADMIN, COMPANY, EMPLOYEE | List (role‑based filter) |
+| GET    | `/api/transactions/{id}` | COMPANY, EMPLOYEE | Detail (ownership check) |
+| POST   | `/api/payments/incoming` | EMPLOYEE | Simulated card payment |
+
+### Ledger
+| Method | Path | Roles | Description |
+|--------|------|-------|-------------|
+| GET    | `/api/ledger` | ADMIN, COMPANY | Full ledger |
+| GET    | `/api/ledger/verify` | ADMIN, COMPANY | Verify chain integrity |
+| GET    | `/api/ledger/entity/{entity_id}` | ADMIN, COMPANY | History of a single entity |
+
+## Security
+- **Passwords** are bcrypt‑hashed.
+- **JWT** uses HMAC‑SHA256; access token expires in 15 min, refresh token in 7 days.
+- **RBAC** middleware checks role on every route; ADMIN bypasses all checks.
+- **Data isolation**: handlers filter results by `company_id`/`employee_id` from JWT.
+- **Cards** never store full PAN; only the last 4 digits are kept.
+- **Audit**: every operation is recorded in an immutable hash‑chained ledger.
+- **Smart contract** is pure, deterministic, and fully testable.
+
+## Project Structure
+
+```
+ExpenseChain/
+├── expense-chain/              # Go backend
+│   ├── src/
+│   │   ├── main.go             # Entry point, wiring
+│   │   ├── blockchain/
+│   │   │   └── ledger.go       # Hash‑chain append‑only ledger
+│   │   ├── contract/
+│   │   │   └── validator.go    # Smart contract (5 rules)
+│   │   ├── db/
+│   │   │   └── db.go           # SQLite connection via GORM
+│   │   ├── handler/            # REST handlers + middleware + router
+│   │   ├── model/              # Domain entities (Company, Employee, Card, Policy, Transaction, LedgerEntry, User)
+│   │   ├── repository/         # Data‑access layer
+│   │   └── service/            # Business logic
+│   ├── go.mod
+│   └── expense.db              # SQLite DB (generated)
+│
+└── expense-chain-fe/           # Vue 3 frontend
+    ├── src/
+    │   ├── api/client.js       # HTTP client with auto‑refresh JWT
+    │   ├── store/auth.js       # Reactive auth state
+    │   ├── views/              # Login, Dashboard, Companies, Employees, Cards, Policies, Transactions, Ledger
+    │   ├── App.vue             # Shell with role‑based sidebar
+    │   └── router.js           # Router with auth guard
+    ├── package.json
+    └── vite.config.js          # Dev proxy to backend :8080
+```
+
+---
+
+Feel free to open an issue, star the repository, or submit a pull request if you have ideas for improvement!
+ 📒
+
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.26.2-success.svg)](https://golang.org/dl/)
+[![Node](https://img.shields.io/badge/Node-22.0.0-success.svg)](https://nodejs.org/)
+
+**ExpenseChain** is a university project that demonstrates a blockchain‑backed audit trail for expense‑management operations. It includes a Go backend and a Vue 3 front‑end.
+
 
 Sistema di gestione spese aziendali con **blockchain simulata** e **smart contract** per la validazione automatica delle transazioni.
 
