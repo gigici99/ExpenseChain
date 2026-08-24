@@ -1,4 +1,11 @@
-# ExpenseChain
+# ExpenseChain 📒
+
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.26.2-success.svg)](https://golang.org/dl/)
+[![Node](https://img.shields.io/badge/Node-22.0.0-success.svg)](https://nodejs.org/)
+
+**ExpenseChain** is a university project that demonstrates a blockchain‑backed audit trail for expense‑management operations. It includes a Go backend and a Vue 3 front‑end.
+
 
 Sistema di gestione spese aziendali con **blockchain simulata** e **smart contract** per la validazione automatica delle transazioni.
 
